@@ -1,0 +1,6 @@
+# Never publish notes. They live in the folder above this one, so they are outside the
+# repository already - this is a second line of defence in case one is ever copied in.
+note-*.json
+sticky-settings.json
+notes-dir.txt
+*.bak

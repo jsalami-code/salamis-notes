@@ -1,0 +1,177 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Sync engine tests</title>
+<style>
+  body { font: 13px/1.6 Consolas, monospace; margin: 16px; background: #fbfaf7; color: #222; }
+  h1 { font: 600 16px/1.4 "Segoe UI", sans-serif; }
+  .ok { color: #1a7f37; } .bad { color: #b42318; }
+  .case { margin-left: 16px; }
+  pre { margin: 2px 0 10px 32px; padding: 6px 8px; background: #fff; border-left: 3px solid #b42318; white-space: pre-wrap; }
+  #sum { font: 600 14px "Segoe UI", sans-serif; margin: 10px 0 18px; }
+</style>
+<h1>Sync engine - every case, against a fake OneDrive</h1>
+<div id="sum">running...</div>
+<div id="out"></div>
+<script type="module">
+import { syncAll } from './sync.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const log = (h) => { const d = document.createElement('div'); d.innerHTML = h; out.append(d); };
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+function check(label, got, want) {
+  const g = JSON.stringify(got), w = JSON.stringify(want);
+  if (g === w) { pass++; log(`<div class="case ok">ok&nbsp; ${esc(label)}</div>`); return; }
+  fail++;
+  log(`<div class="case bad">FAIL ${esc(label)}</div><pre>got : ${esc(g)}\nwant: ${esc(w)}</pre>`);
+}
+
+// --- a local store, in memory, with the same shape the real one gives sync -------------
+function makeLocal(notes = {}, meta = {}, tombs = {}) {
+  const data = { ...notes };
+  const fp = (j) => JSON.stringify(j).length + ':' + JSON.stringify(j).slice(0, 24);
+  return {
+    data, syncMeta: { ...meta }, tombstones: { ...tombs },
+    ids: () => Object.keys(data),
+    get: (id) => data[id] ? JSON.parse(JSON.stringify(data[id])) : null,
+    put: (id, j) => { data[id] = JSON.parse(JSON.stringify(j)); },
+    remove: (id) => { delete data[id]; },
+    mark(id, tag, j) { this.syncMeta[id] = { tag, hash: fp(j) }; },
+    unmark(id) { delete this.syncMeta[id]; },
+    forget(id) { delete this.tombstones[id]; },
+    isDirty(id) { const m = this.syncMeta[id]; return !m || m.hash !== fp(data[id]); },
+    create(kind, extra) { const id = 'copy' + (Object.keys(data).length); data[id] = { ...extra }; return { id, json: data[id] }; },
+  };
+}
+
+// --- a fake OneDrive -------------------------------------------------------------------
+function makeRemote(files = {}) {
+  const data = {};   // id -> { json, tag }
+  let n = 0;
+  for (const [id, json] of Object.entries(files)) data[id] = { json, tag: 't' + (++n) };
+  return {
+    data,
+    list: async () => Object.entries(data).map(([id, f]) => ({ id, tag: f.tag })),
+    get: async (id) => { if (!data[id]) throw new Error('404'); return { json: JSON.parse(JSON.stringify(data[id].json)), tag: data[id].tag }; },
+    put: async (id, json, tag) => {
+      if (data[id] && tag && data[id].tag !== tag) throw new Error('412 changed in OneDrive');
+      data[id] = { json: JSON.parse(JSON.stringify(json)), tag: 't' + (++n) };
+      return { tag: data[id].tag };
+    },
+    del: async (id, tag) => {
+      if (data[id] && tag && data[id].tag !== tag) throw new Error('412 changed in OneDrive');
+      delete data[id];
+    },
+  };
+}
+
+const note = (text, extra = {}) => ({ text, name: '', color: 0, ...extra });
+
+// 1. a note only in OneDrive comes down
+{
+  const local = makeLocal();
+  const remote = makeRemote({ a: note('from the laptop') });
+  const r = await syncAll(local, remote);
+  check('pull: new note arrives', [r.pulled, local.data.a.text], [['a'], 'from the laptop']);
+  check('pull: it is not dirty afterwards', local.isDirty('a'), false);
+}
+
+// 2. a note only here goes up
+{
+  const local = makeLocal({ b: note('typed on the phone') });
+  const remote = makeRemote();
+  const r = await syncAll(local, remote);
+  check('push: new note is created there', [r.created, remote.data.b.json.text], [['b'], 'typed on the phone']);
+}
+
+// 3. changed here only -> uploaded
+{
+  const local = makeLocal({ c: note('v2') });
+  const remote = makeRemote({ c: note('v1') });
+  local.mark('c', remote.data.c.tag, note('v1'));
+  local.put('c', note('v2'));
+  const r = await syncAll(local, remote);
+  check('push: local edit wins when theirs is untouched', [r.pushed, remote.data.c.json.text], [['c'], 'v2']);
+}
+
+// 4. changed there only -> downloaded
+{
+  const local = makeLocal({ d: note('v1') });
+  const remote = makeRemote({ d: note('v1') });
+  local.mark('d', remote.data.d.tag, note('v1'));
+  await remote.put('d', note('v2'), remote.data.d.tag);
+  const r = await syncAll(local, remote);
+  check('pull: their edit arrives when ours is untouched', [r.pulled, local.data.d.text], [['d'], 'v2']);
+}
+
+// 5. changed in both places -> theirs wins the file, ours is kept as a conflict copy
+{
+  const local = makeLocal({ e: note('mine', { name: 'Plans' }) });
+  const remote = makeRemote({ e: note('theirs', { name: 'Plans' }) });
+  local.mark('e', 't99', note('base', { name: 'Plans' }));   // an older tag: both moved on
+  const r = await syncAll(local, remote);
+  const copy = r.conflicts[0] && local.data[r.conflicts[0].keptAs];
+  check('conflict: the file ends up as theirs', local.data.e.text, 'theirs');
+  check('conflict: our text is kept beside it', copy && copy.text, 'mine');
+  check('conflict: the copy says so in its name', copy && copy.name, 'Plans (conflict copy)');
+  check('conflict: nothing was overwritten there', remote.data.e.json.text, 'theirs');
+}
+
+// 6. deleted here -> deleted there
+{
+  const local = makeLocal({}, {}, { f: { tag: 't1' } });
+  const remote = makeRemote({ f: note('bye') });
+  remote.data.f.tag = 't1';
+  const r = await syncAll(local, remote);
+  check('delete: carried to OneDrive', [r.deletedThere, !!remote.data.f], [['f'], false]);
+}
+
+// 7. deleted here but changed there in the meantime -> it comes back rather than vanishing
+{
+  const local = makeLocal({}, {}, { g: { tag: 'old' } });
+  const remote = makeRemote({ g: note('they wrote more') });
+  const r = await syncAll(local, remote);
+  check('delete: a note changed there is restored, not deleted', [r.pulled, local.data.g.text], [['g'], 'they wrote more']);
+  check('delete: and it still exists there', !!remote.data.g, true);
+}
+
+// 8. deleted there, untouched here -> removed here
+{
+  const local = makeLocal({ h: note('gone there') });
+  const remote = makeRemote();
+  local.mark('h', 't1', note('gone there'));
+  const r = await syncAll(local, remote);
+  check('delete: an untouched note removed there goes here too', [r.deletedHere, !!local.data.h], [['h'], false]);
+}
+
+// 9. deleted there but edited here -> put back, never silently lost
+{
+  const local = makeLocal({ i: note('I kept writing') });
+  const remote = makeRemote();
+  local.mark('i', 't1', note('older'));
+  const r = await syncAll(local, remote);
+  check('delete: our edit survives a deletion there', [r.created, remote.data.i.json.text], [['i'], 'I kept writing']);
+}
+
+// 10. nothing to do is reported as such
+{
+  const local = makeLocal({ j: note('same') });
+  const remote = makeRemote({ j: note('same') });
+  local.mark('j', remote.data.j.tag, note('same'));
+  const r = await syncAll(local, remote);
+  check('quiet: an unchanged note is left alone', [r.pulled, r.pushed, r.created], [[], [], []]);
+}
+
+// 11. one broken note does not stop the others
+{
+  const local = makeLocal({ k: note('fine') });
+  const remote = makeRemote({ bad: note('x'), ok: note('y') });
+  remote.get = async (id) => { if (id === 'bad') throw new Error('500 from Graph'); return { json: note('y'), tag: 't9' }; };
+  const r = await syncAll(local, remote);
+  check('errors: the rest still syncs', [r.errors.map((e) => e.id), r.pulled.includes('ok'), !!remote.data.k], [['bad'], true, true]);
+}
+
+document.getElementById('sum').innerHTML = fail
+  ? `<span class="bad">${fail} failed</span>, ${pass} passed`
+  : `<span class="ok">all ${pass} checks passed</span>`;
+</script>

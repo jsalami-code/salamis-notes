@@ -1,0 +1,21 @@
+{
+  "name": "SALAMI's Notes",
+  "short_name": "SALAMI's Notes",
+  "description": "Your sticky notes, to-do lists, task trackers and monthly activity lists, on the same OneDrive folder as the Windows app.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f6f2",
+  "theme_color": "#f7e06a",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Today's List", "url": "./?open=today" },
+    { "name": "New note", "url": "./?new=note" }
+  ]
+}

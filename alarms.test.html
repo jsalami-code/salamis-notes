@@ -1,0 +1,108 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Timer and alarm tests</title>
+<style>
+  body { font: 13px/1.6 Consolas, monospace; margin: 16px; background: #fbfaf7; color: #222; }
+  h1 { font: 600 16px/1.4 "Segoe UI", sans-serif; }
+  .ok { color: #1a7f37; } .bad { color: #b42318; }
+  .case { margin-left: 16px; }
+  pre { margin: 2px 0 10px 32px; padding: 6px 8px; background: #fff; border-left: 3px solid #b42318; }
+  #sum { font: 600 14px "Segoe UI", sans-serif; margin: 10px 0 18px; }
+</style>
+<h1>Timers and alarms - the arithmetic the desktop app shares</h1>
+<div id="sum">running...</div>
+<div id="out"></div>
+<script type="module">
+import { timerState, startTimer, pauseTimer, resetTimer, fmt } from './alarms.js';
+import { splitTask, formatTask } from './notes.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const log = (h) => { const d = document.createElement('div'); d.innerHTML = h; out.append(d); };
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+function check(label, got, want) {
+  const g = JSON.stringify(got), w = JSON.stringify(want);
+  if (g === w) { pass++; log(`<div class="case ok">ok&nbsp; ${esc(label)}</div>`); return; }
+  fail++; log(`<div class="case bad">FAIL ${esc(label)}</div><pre>got : ${esc(g)}\nwant: ${esc(w)}</pre>`);
+}
+const at = (s) => new Date('2026-10-02T' + s);
+
+// --- reading what a line says a timer is doing ------------------------------------------
+{
+  const t = splitTask('Write up ~30m @timer 2026-10-02 14:00:00');
+  const st = timerState(t, at('14:10:00'));
+  check('running countdown: 30m started at 14:00, 10m gone -> 20m left',
+        [st.kind, st.running, Math.round(st.secs)], ['countdown', true, 1200]);
+}
+{
+  const t = splitTask('Write up ~30m @paused 0:12:34');
+  const st = timerState(t, at('14:10:00'));
+  check('paused countdown reads its own total', [st.kind, st.running, st.secs], ['countdown', false, 754]);
+}
+{
+  const t = splitTask('Reading @watch 2026-10-02 14:00:00');
+  const st = timerState(t, at('14:05:12'));
+  check('stopwatch counts up', [st.kind, st.running, Math.round(st.secs)], ['stopwatch', true, 312]);
+}
+{
+  const t = splitTask('Reading @spent 0:05:12');
+  check('stopped stopwatch', timerState(t, at('14:00:00')).secs, 312);
+}
+{
+  const t = splitTask('Write up ~30m @timer 2026-10-02 14:00:00');
+  check('an overrun countdown goes negative, not back to zero',
+        Math.round(timerState(t, at('14:45:00')).secs), -900);
+}
+
+// --- starting, pausing, resuming: the written line must stay legal to the desktop app ----
+{
+  const t = splitTask('Write up ~30m');
+  startTimer(t, at('14:00:00'));
+  // Write-Stamp leaves the seconds off when they are zero, so this is what the desktop writes too
+  check('start a 30m task writes @timer at now', formatTask(t), 'Write up ~30m @timer 2026-10-02 14:00');
+  pauseTimer(t, at('14:10:00'));
+  check('pausing after 10m leaves 20m', formatTask(t), 'Write up ~30m @paused 0:20:00');
+  startTimer(t, at('15:00:00'));
+  check('resuming keeps the 20m (back-dates @timer by the 10m already spent)',
+        formatTask(t), 'Write up ~30m @timer 2026-10-02 14:50');
+  check('and it still reads as 20m left', Math.round(timerState(t, at('15:00:00')).secs), 1200);
+  resetTimer(t);
+  check('reset clears every timer token', formatTask(t), 'Write up ~30m');
+}
+{
+  const t = splitTask('Reading');   // no duration: a stopwatch, not a countdown
+  startTimer(t, at('09:00:00'));
+  check('a task with no duration counts up', formatTask(t), 'Reading @watch 2026-10-02 09:00');
+  pauseTimer(t, at('09:05:12'));
+  check('pausing a stopwatch writes @spent', formatTask(t), 'Reading @spent 0:05:12');
+  startTimer(t, at('10:00:00'));
+  check('resuming a stopwatch keeps the time already on it',
+        Math.round(timerState(t, at('10:00:00')).secs), 312);
+}
+{
+  // the tokens must not pile up when a timer is started and stopped repeatedly
+  const t = splitTask('Job ~1h @2026-10-07 09:00 @cal 1a2b3c4d @from 2026-10-01');
+  startTimer(t, at('08:00:00')); pauseTimer(t, at('08:30:00')); startTimer(t, at('09:00:00'));
+  const line = formatTask(t);
+  check('the other tokens survive a timer being toggled',
+        [/@cal 1a2b3c4d/.test(line), /@from 2026-10-01/.test(line), (line.match(/@timer|@paused|@watch|@spent/g) || []).length],
+        [true, true, 1]);
+  check('and the line still parses back to the same thing', formatTask(splitTask(line)), line);
+}
+
+{
+  const t = splitTask('Write up ~30m');
+  startTimer(t, at('14:00:07'));
+  check('seconds are written when they are not zero', formatTask(t), 'Write up ~30m @timer 2026-10-02 14:00:07');
+  check('and read back exactly', Math.round(timerState(splitTask(formatTask(t)), at('14:10:07')).secs), 1200);
+}
+
+// --- the clock face ---------------------------------------------------------------------
+check('fmt under an hour', [fmt(59), fmt(754)], ['0:59', '12:34']);
+check('fmt over an hour', fmt(3723), '1:02:03');
+check('fmt never shows a negative', fmt(-5), '0:00');
+
+document.getElementById('sum').innerHTML = fail
+  ? `<span class="bad">${fail} failed</span>, ${pass} passed`
+  : `<span class="ok">all ${pass} checks passed</span>`;
+</script>

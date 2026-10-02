@@ -1,0 +1,131 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Note format round-trip</title>
+<style>
+  body { font: 13px/1.5 Consolas, monospace; margin: 16px; background: #fbfaf7; color: #222; }
+  h1 { font: 600 16px/1.4 "Segoe UI", sans-serif; }
+  .ok { color: #1a7f37; } .bad { color: #b42318; }
+  .case { margin: 2px 0 2px 16px; }
+  pre { margin: 2px 0 10px 32px; padding: 6px 8px; background: #fff; border-left: 3px solid #b42318; white-space: pre-wrap; }
+  #sum { font: 600 14px "Segoe UI", sans-serif; margin: 10px 0 18px; }
+</style>
+<h1>Note format round-trip - re-serialising every parsed line and comparing with the original</h1>
+<div id="sum">running...</div>
+<div id="out"></div>
+<script type="module">
+import { splitTask, formatTask, parseTodo, parseTracker, formatTracker, noteKind, TODO_RX, TRK_ITEM_RX }
+  from './notes.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const log = (html) => { const d = document.createElement('div'); d.innerHTML = html; out.append(d); };
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+function check(label, got, want) {
+  if (got === want) { pass++; return true; }
+  fail++;
+  log(`<div class="case bad">FAIL ${esc(label)}</div>
+       <pre>original : ${esc(want)}\nrewritten: ${esc(got)}</pre>`);
+  return false;
+}
+
+// --- fixtures ---------------------------------------------------------------------------
+// Your real notes do not use every token, so these come from the format's own documented
+// examples in StickyNote.ps1. Each must survive parse -> write unchanged.
+log('<div style="margin-top:8px"><b>Fixtures</b></div>');
+const taskLines = [
+  'Read ch. 3',
+  'Read ch. 3 ~30m',
+  'Field survey ~1h30m',
+  'Long job ~2h',
+  'Standup @2026-10-02 07:30',
+  'Standup @2026-10-02 07:30 daily',
+  'Call the dean @2026-10-02 19:30 @snooze 2026-10-02 17:30',
+  'Write up @timer 2026-10-01 14:05:30',
+  'Write up @paused 0:12:34',
+  'Reading @watch 2026-10-01 14:05:30',
+  'Reading @spent 0:05:12',
+  'Faculty meeting ~1h45m @2026-10-02 16:00 @cal b5e97d94',
+  'Carried task ~2h @from 2026-10-01',
+  'Everything ~1h30m @2026-10-07 09:00 daily @snooze 2026-10-07 10:00 @timer 2026-10-07 09:30:15 @cal 1a2b3c4d @from 2026-10-01',
+  'Email about @7 something',          // a bare @7 is text, not an alarm
+  'Price is ~45 things',               // ~45 at the end would be a duration; mid-line it is text
+];
+for (const line of taskLines) check('task: ' + line, formatTask(splitTask(line)), line);
+
+const trackerText = [
+  'TASK: Surv Popoola MSc thesis | started 2026-10-01 15:40',
+  '',
+  '== OBJECTIVES ==',
+  '[ ] Draft chapter 3 | added 2026-10-01 15:42',
+  '[ ] Book the lab | added 2026-10-01 15:45 | due 2026-10-07 | alarm 2026-10-07 09:00 daily',
+  '',
+  '== ONGOING ==',
+  '[~] Field survey | added 2026-09-28 09:00 | started 2026-10-01 10:12 | timer 2026-10-01 14:05:30',
+  // token order as Get-TrackerText writes it: added/started/finished, due, alarm, snooze, timer|spent
+  '[~] Data cleaning | added 2026-09-29 09:00 | started 2026-10-01 11:00 | snooze 2026-10-01 17:30:00 | spent 0:12:34',
+  '',
+  '== FINISHED ==',
+  '[x] Literature review | added 2026-09-20 08:00 | started 2026-09-22 09:00 | finished 2026-09-30 17:45',
+].join('\r\n');
+{
+  const t = parseTracker(trackerText);
+  t.items.forEach((it) => { it.dirty = true; });
+  check('tracker fixture (' + t.items.length + ' items)', formatTracker(t, false), trackerText);
+}
+
+const monthlyText = [
+  'TASK: October 2026 - Activity List | started 2026-10-01 20:39',
+  '',
+  '== NOT STARTED ==',
+  '[ ] Paper review | added 2026-10-01 20:40 | due 2026-10-07',
+  '',
+  '== ONGOING ==',
+  '[~] Conference abstract | added 2026-10-01 20:41 | started 2026-10-02 09:00 | due 2026-10-15 | alarm 2026-10-14 09:00',
+  '',
+  '== FINISHED ==',
+  '[x] Departmental report | added 2026-09-30 10:00 | finished 2026-10-01 18:20',
+  '',
+  '== NOTES ==',
+  'Chase the printer about the proceedings.',
+].join('\r\n');
+{
+  const t = parseTracker(monthlyText);
+  t.items.forEach((it) => { it.dirty = true; });
+  check('monthly fixture (' + t.items.length + ' items, with Notes)', formatTracker(t, true), monthlyText);
+}
+
+// the dev server lists the folder; pick the note files out of it
+const listing = await (await fetch('../')).text();
+const names = [...new Set([...listing.matchAll(/note-[A-Za-z0-9_-]+\.json/g)].map((m) => m[0]))];
+log(`<div>${names.length} note files found</div>`);
+
+for (const name of names) {
+  let j;
+  try { j = await (await fetch('../' + name)).json(); } catch (e) { log(`<div class="bad">${name}: ${e}</div>`); continue; }
+  const kind = noteKind(j);
+  const text = String(j.text ?? '');
+  let checked = 0;
+
+  if (kind === 'tracker' || kind === 'monthly') {
+    const t = parseTracker(text);
+    // force every item to be written from its parsed fields, not echoed from raw
+    t.items.forEach((it) => { it.dirty = true; });
+    const rebuilt = formatTracker(t, kind === 'monthly');
+    check(`${name} whole tracker`, rebuilt.replace(/\s+$/, ''), text.replace(/\s+$/, ''));
+    checked = t.items.length;
+  } else {
+    for (const line of text.split(/\r?\n/)) {
+      const td = TODO_RX.exec(line);
+      if (!td || !td[3].trim()) continue;
+      check(`${name}: ${td[3].slice(0, 40)}`, formatTask(splitTask(td[3])), td[3].trim());
+      checked++;
+    }
+  }
+  log(`<div class="case">${esc(name)} <span style="color:#777">(${kind}, ${checked} line(s))</span></div>`);
+}
+
+document.getElementById('sum').innerHTML = fail
+  ? `<span class="bad">${fail} failed</span>, ${pass} passed`
+  : `<span class="ok">all ${pass} checks passed</span>`;
+</script>
