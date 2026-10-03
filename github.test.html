@@ -1,0 +1,147 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>GitHub backend tests</title>
+<style>
+  body { font: 13px/1.6 Consolas, monospace; margin: 16px; background: #fbfaf7; color: #222; }
+  h1 { font: 600 16px/1.4 "Segoe UI", sans-serif; }
+  .ok { color: #1a7f37; } .bad { color: #b42318; }
+  .case { margin-left: 16px; }
+  pre { margin: 2px 0 10px 32px; padding: 6px 8px; background: #fff; border-left: 3px solid #b42318; white-space: pre-wrap; }
+  #sum { font: 600 14px "Segoe UI", sans-serif; margin: 10px 0 18px; }
+</style>
+<h1>GitHub backend - against a stand-in GitHub, no network</h1>
+<div id="sum">running...</div>
+<div id="out"></div>
+<script type="module">
+import { remote, setConfig, config } from './github.js';
+import { syncAll } from './sync.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const log = (h) => { const d = document.createElement('div'); d.innerHTML = h; out.append(d); };
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+function check(label, got, want) {
+  const g = JSON.stringify(got), w = JSON.stringify(want);
+  if (g === w) { pass++; log(`<div class="case ok">ok&nbsp; ${esc(label)}</div>`); return; }
+  fail++; log(`<div class="case bad">FAIL ${esc(label)}</div><pre>got : ${esc(g)}\nwant: ${esc(w)}</pre>`);
+}
+
+setConfig({ owner: 'salamitosin', repo: 'salamis-notes-data', path: 'notes', token: 'test-token' });
+
+// --- a stand-in GitHub ------------------------------------------------------------------
+const b64 = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+const files = new Map();        // path -> { text, sha }
+let shaN = 0, calls = [];
+const nextSha = () => 'sha' + (++shaN);
+
+window.fetch = async (url, opts = {}) => {
+  calls.push({ url, method: opts.method || 'GET', auth: (opts.headers || {}).Authorization });
+  const u = new URL(url, 'https://api.github.com');
+  const body = opts.body ? JSON.parse(opts.body) : null;
+  const reply = (status, obj) => new Response(obj === undefined ? '' : JSON.stringify(obj), { status });
+
+  const m = /^\/repos\/([^/]+)\/([^/]+)(?:\/contents\/(.*))?$/.exec(u.pathname);
+  if (!m) return reply(404);
+  const [, , , path = ''] = m;
+  if (!u.pathname.includes('/contents/')) return reply(200, { full_name: 'salamitosin/salamis-notes-data', private: true });
+
+  const method = opts.method || 'GET';
+  if (method === 'GET') {
+    if (files.has(path)) {
+      const f = files.get(path);
+      return reply(200, { name: path.split('/').pop(), sha: f.sha, content: b64(f.text) + '\n', type: 'file' });
+    }
+    // a folder listing
+    const inDir = [...files.entries()].filter(([p]) => p.startsWith(path + '/') && !p.slice(path.length + 1).includes('/'));
+    if (!inDir.length && path !== 'notes') return reply(404);
+    return reply(200, inDir.map(([p, f]) => ({ name: p.split('/').pop(), sha: f.sha, type: 'file' })));
+  }
+  if (method === 'PUT') {
+    const cur = files.get(path);
+    if (cur && body.sha !== cur.sha) return reply(409);           // someone else changed it
+    if (!cur && body.sha) return reply(404);
+    const sha = nextSha();
+    files.set(path, { text: new TextDecoder().decode(Uint8Array.from(atob(body.content), (c) => c.charCodeAt(0))), sha });
+    return reply(200, { content: { sha } });
+  }
+  if (method === 'DELETE') {
+    const cur = files.get(path);
+    if (cur && body.sha !== cur.sha) return reply(409);
+    files.delete(path);
+    return reply(200, {});
+  }
+  return reply(405);
+};
+
+// --- the four methods --------------------------------------------------------------------
+{
+  calls = [];
+  const r = await remote.put('abc123', { text: 'hello', name: '' }, null);
+  check('put: creates the file and returns its sha', !!r.tag, true);
+  check('put: writes to the configured folder', calls[0].url.endsWith('/contents/notes/note-abc123.json'), true);
+  check('put: sends the token', calls[0].auth, 'Bearer test-token');
+  const got = await remote.get('abc123');
+  check('get: reads it back', [got.json.text, got.tag === r.tag], ['hello', true]);
+}
+{
+  const list = await remote.list();
+  check('list: finds the note', list.map((x) => x.id), ['abc123']);
+}
+{
+  // characters outside Latin-1 must survive the base64 journey intact
+  const text = 'Chaîne — naïve – ₦500 — café ✓ 中文';
+  await remote.put('uni', { text }, null);
+  check('unicode survives base64 both ways', (await remote.get('uni')).json.text, text);
+}
+{
+  const before = await remote.get('abc123');
+  await remote.put('abc123', { text: 'second' }, before.tag);
+  check('put with the right sha replaces', (await remote.get('abc123')).json.text, 'second');
+  let err = null;
+  try { await remote.put('abc123', { text: 'stale write' }, before.tag); } catch (e) { err = e.message; }
+  check('put with a stale sha is refused, not silently applied', err, 'changed in GitHub since we last looked');
+  check('and the file was left alone', (await remote.get('abc123')).json.text, 'second');
+}
+{
+  const cur = await remote.get('uni');
+  await remote.del('uni', cur.tag);
+  check('del removes it', (await remote.list()).map((x) => x.id), ['abc123']);
+  let threw = false;
+  try { await remote.del('uni', cur.tag); } catch { threw = true; }
+  check('deleting what is already gone is not an error', threw, false);
+}
+{
+  const info = await remote.check();
+  check('check reports the repo, that it is private, and the count',
+        [info.repo, info.private, info.path, info.notes],
+        ['salamitosin/salamis-notes-data', true, 'notes', 1]);
+}
+
+// --- and the whole sync engine, driven through this backend -------------------------------
+{
+  const data = { local1: { text: 'written on the phone' } };
+  const meta = {}, tombs = {};
+  const fp = (j) => JSON.stringify(j).length + ':' + JSON.stringify(j).slice(0, 24);
+  const local = {
+    data, syncMeta: meta, tombstones: tombs,
+    ids: () => Object.keys(data),
+    get: (id) => data[id] ? JSON.parse(JSON.stringify(data[id])) : null,
+    put: (id, j) => { data[id] = JSON.parse(JSON.stringify(j)); },
+    remove: (id) => { delete data[id]; },
+    mark(id, tag, j) { this.syncMeta[id] = { tag, hash: fp(j) }; },
+    unmark(id) { delete this.syncMeta[id]; },
+    forget(id) { delete this.tombstones[id]; },
+    isDirty(id) { const m = this.syncMeta[id]; return !m || m.hash !== fp(data[id]); },
+    create(kind, extra) { const id = 'copy1'; data[id] = { ...extra }; return { id, json: data[id] }; },
+  };
+  const r = await syncAll(local, remote);
+  check('end to end: the phone note is pushed to GitHub', r.created, ['local1']);
+  check('end to end: the note already there is pulled down', r.pulled, ['abc123']);
+  check('end to end: both now exist locally', Object.keys(data).sort(), ['abc123', 'local1']);
+  check('end to end: and both exist in GitHub', (await remote.list()).map((x) => x.id).sort(), ['abc123', 'local1']);
+}
+
+document.getElementById('sum').innerHTML = fail
+  ? `<span class="bad">${fail} failed</span>, ${pass} passed`
+  : `<span class="ok">all ${pass} checks passed</span>`;
+</script>

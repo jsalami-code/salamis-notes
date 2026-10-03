@@ -12,6 +12,7 @@ import {
 import { store } from './store.js';
 import { syncAll, describe } from './sync.js';
 import * as graph from './graph.js';
+import * as github from './github.js';
 import { timerState, startTimer, pauseTimer, resetTimer, fmt, checkAlarms, askPermission, notifyState } from './alarms.js';
 
 // the Windows app's palette: background, title bar, text
@@ -474,7 +475,22 @@ async function tickAlarms() {
 setInterval(tickAlarms, 30000);
 tickAlarms();
 
-// --- OneDrive ------------------------------------------------------------------------------
+// --- syncing -------------------------------------------------------------------------------
+// Two backends, one interface. Whichever is chosen, sync.js drives it the same way.
+const BACKEND = 'sn:backend';
+const backend = () => localStorage.getItem(BACKEND) || (graph.config().clientId ? 'graph' : 'github');
+const setBackend = (b) => localStorage.setItem(BACKEND, b);
+
+function activeRemote() {
+  if (backend() === 'graph') {
+    if (!graph.config().clientId) throw new Error('No Client ID yet - add it in Sync settings.');
+    if (!graph.signedInAs()) throw new Error('Sign in to OneDrive first.');
+    return graph.remote;
+  }
+  if (!github.configured()) throw new Error('Add your GitHub details in Sync settings.');
+  return github.remote;
+}
+
 const line = $('#syncLine');
 function say(text, cls = '') {
   line.hidden = !text;
@@ -483,17 +499,18 @@ function say(text, cls = '') {
 }
 
 async function doSync() {
-  if (!graph.config().clientId) { openCfg('Add your Client ID first.'); return; }
-  if (!graph.signedInAs()) { openCfg('Sign in first.'); return; }
+  if (backend() === 'none') { openCfg('Pick where notes should sync to.'); return; }
+  let rem;
+  try { rem = activeRemote(); } catch (e) { openCfg(e.message); return; }
   say('syncing', 'busy');
   try {
-    const r = await syncAll(store, graph.remote);
+    const r = await syncAll(store, rem);
     store.meta = { ...store.meta, lastSync: new Date().toISOString() };
     const bad = r.errors.length ? ' - ' + r.errors[0].message : '';
     say(describe(r) + bad, r.errors.length ? 'bad' : '');
     if (r.conflicts.length) {
       alert(`${r.conflicts.length} note(s) had been changed in both places.\n\n` +
-            'OneDrive’s copy is now the note; what was written here is kept beside it ' +
+            'The synced copy is now the note; what was written here is kept beside it ' +
             'as a "(conflict copy)" so nothing is lost.');
     }
     renderList();
@@ -503,6 +520,12 @@ async function doSync() {
   }
 }
 
+function showPanes() {
+  const b = $('#cfgBackend').value;
+  $('#paneGh').hidden = b !== 'github';
+  $('#paneGraph').hidden = b !== 'graph';
+}
+
 function openCfg(msg = '') {
   showNotifState();
   const c = graph.config();
@@ -510,17 +533,28 @@ function openCfg(msg = '') {
   $('#cfgPath').value = c.notesPath;
   $('#cfgRedirect').textContent = location.origin + location.pathname;
   $('#cfgWho').textContent = graph.signedInAs() ? 'Signed in as ' + graph.signedInAs() : 'Not signed in.';
+  const g = github.config();
+  $('#ghOwner').value = g.owner; $('#ghRepo').value = g.repo;
+  $('#ghPath').value = g.path; $('#ghToken').value = g.token;
+  $('#cfgBackend').value = backend();
+  showPanes();
   $('#cfgMsg').textContent = msg;
   $('#cfg').classList.add('on');
 }
+$('#cfgBackend').onchange = showPanes;
 
 $('#sync').onclick = doSync;
 $('#settings').onclick = () => openCfg();
 $('#cfgClose').onclick = () => $('#cfg').classList.remove('on');
 $('#cfg').onclick = (e) => { if (e.target.id === 'cfg') $('#cfg').classList.remove('on'); };
 $('#cfgSave').onclick = () => {
+  setBackend($('#cfgBackend').value);
   graph.setConfig({ clientId: $('#cfgId').value.trim(), notesPath: $('#cfgPath').value.trim() });
-  $('#cfgMsg').textContent = 'Saved. Sign in next.';
+  github.setConfig({
+    owner: $('#ghOwner').value.trim(), repo: $('#ghRepo').value.trim(),
+    path: $('#ghPath').value.trim() || 'notes', token: $('#ghToken').value.trim(),
+  });
+  $('#cfgMsg').textContent = backend() === 'graph' ? 'Saved. Sign in next.' : 'Saved. Try Test connection.';
 };
 $('#cfgIn').onclick = async () => {
   graph.setConfig({ clientId: $('#cfgId').value.trim(), notesPath: $('#cfgPath').value.trim() });
@@ -568,8 +602,14 @@ function showNotifState() {
 $('#cfgCheck').onclick = async () => {
   $('#cfgMsg').textContent = 'looking...';
   try {
-    const r = await graph.remote.check();
-    $('#cfgMsg').textContent = `Found "${r.name}" with ${r.notes} note file(s).`;
+    if ($('#cfgBackend').value === 'graph') {
+      const r = await graph.remote.check();
+      $('#cfgMsg').textContent = `Found "${r.name}" with ${r.notes} note file(s).`;
+    } else {
+      const r = await github.remote.check();
+      $('#cfgMsg').textContent = `Found ${r.repo}${r.private ? ' (private)' : ' - WARNING: this repo is public'}`
+        + `, folder ${r.path}, ${r.notes} note file(s).`;
+    }
   } catch (e) { $('#cfgMsg').textContent = e.message; }
 };
 

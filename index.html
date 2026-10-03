@@ -59,18 +59,42 @@
 </div></div>
 
 <div id="cfg" class="sheet"><div class="inner pane">
-  <h2>OneDrive sync</h2>
-  <p id="cfgWho" class="hint"></p>
-  <label>Client ID <small>from your Azure app registration</small>
-    <input id="cfgId" placeholder="00000000-0000-0000-0000-000000000000" autocomplete="off" spellcheck="false"></label>
-  <label>Notes folder in OneDrive
-    <input id="cfgPath" placeholder="Personal Development/StickyNotes" autocomplete="off" spellcheck="false"></label>
-  <p class="hint">Redirect URI to register in Azure: <code id="cfgRedirect"></code></p>
+  <h2>Sync</h2>
+  <label>Where the notes travel through
+    <select id="cfgBackend" style="width:100%;height:var(--tap);margin-top:4px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);padding:0 10px">
+      <option value="github">A private GitHub repository</option>
+      <option value="graph">OneDrive (Microsoft Graph)</option>
+      <option value="none">Nothing - keep them on this device only</option>
+    </select></label>
+
+  <div id="paneGh">
+    <label>Owner <small>your GitHub username</small>
+      <input id="ghOwner" placeholder="salamitosin" autocomplete="off" spellcheck="false"></label>
+    <label>Repository <small>private, holds only the notes</small>
+      <input id="ghRepo" placeholder="salamis-notes-data" autocomplete="off" spellcheck="false"></label>
+    <label>Folder inside it
+      <input id="ghPath" placeholder="notes" autocomplete="off" spellcheck="false"></label>
+    <label>Access token <small>fine-grained, Contents: read and write, that repo only</small>
+      <input id="ghToken" type="password" placeholder="github_pat_..." autocomplete="off" spellcheck="false"></label>
+    <p class="hint">The token is kept in this device&#39;s browser storage. Revoke it on GitHub at any time.</p>
+  </div>
+
+  <div id="paneGraph" hidden>
+    <p id="cfgWho" class="hint"></p>
+    <label>Client ID <small>from your Azure app registration</small>
+      <input id="cfgId" placeholder="00000000-0000-0000-0000-000000000000" autocomplete="off" spellcheck="false"></label>
+    <label>Notes folder in OneDrive
+      <input id="cfgPath" placeholder="Personal Development/StickyNotes" autocomplete="off" spellcheck="false"></label>
+    <p class="hint">Redirect URI to register in Azure: <code id="cfgRedirect"></code></p>
+    <div class="cfgRow">
+      <button id="cfgIn">Sign in</button>
+      <button id="cfgOut">Sign out</button>
+    </div>
+  </div>
+
   <div class="cfgRow">
     <button id="cfgSave" class="primary">Save</button>
-    <button id="cfgIn">Sign in</button>
-    <button id="cfgCheck">Check folder</button>
-    <button id="cfgOut">Sign out</button>
+    <button id="cfgCheck">Test connection</button>
     <button id="cfgSeed">Re-read local folder</button>
     <button id="cfgClose">Close</button>
   </div>
