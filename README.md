@@ -1,5 +1,7 @@
 # SALAMI's Notes - web app
 
+A daily journal and tasks tracker.
+
 The phone and browser front end for a set of sticky notes kept as one JSON file per note
 in a OneDrive folder. A Windows desktop app (PowerShell + WinForms) reads and writes the
 same files; this app exists so the notes are reachable from Android and iOS, where that
