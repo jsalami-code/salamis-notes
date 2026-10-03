@@ -117,6 +117,16 @@ const note = (text, extra = {}) => ({ text, name: '', color: 0, ...extra });
   check('conflict: nothing was overwritten there', remote.data.e.json.text, 'theirs');
 }
 
+// 5b. a new machine: nothing known about any note, but the copies are identical
+{
+  const local = makeLocal({ same: note('identical on both', { name: 'Oath' }) });
+  const remote = makeRemote({ same: note('identical on both', { name: 'Oath' }) });
+  const r = await syncAll(local, remote);          // no syncMeta at all, as on a fresh laptop
+  check('first sync on a new machine makes no conflict copies', r.conflicts, []);
+  check('and nothing is uploaded or downloaded needlessly', [r.pushed, r.pulled, r.created], [[], [], []]);
+  check('the note is simply adopted as already in step', local.isDirty('same'), false);
+}
+
 // 6. deleted here -> deleted there
 {
   const local = makeLocal({}, {}, { f: { tag: 't1' } });

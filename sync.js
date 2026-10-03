@@ -81,9 +81,15 @@ export async function syncAll(local, remote, { onProgress = () => {} } = {}) {
         report.pushed.push(id);
         continue;
       }
-      // changed in both places
+      // Both sides look changed. Before calling that a clash, check whether they actually
+      // differ: on a machine syncing for the first time nothing is known about any note,
+      // so identical copies would otherwise produce a conflict copy of everything.
       const mine = local.get(id);
       const got = await remote.get(id);
+      if (JSON.stringify(mine) === JSON.stringify(got.json)) {
+        local.mark(id, got.tag, got.json);
+        continue;
+      }
       local.put(id, got.json); local.mark(id, got.tag, got.json);
       const copy = local.create(kindOf(mine), {
         ...mine,
