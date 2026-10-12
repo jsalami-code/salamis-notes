@@ -20,6 +20,8 @@ and it opens from a cached copy with no network.
 | `sync.js` | two-way sync, including what to do when both sides changed |
 | `graph.js` | OneDrive through Microsoft Graph |
 | `alarms.js` | countdowns, stopwatches and alarms |
+| `dash.js` | the dashboards' arithmetic - the same answers as the desktop app's dashboards |
+| `dashview.js` | the Dashboards screen: Today, Journal, Quarter, Streaks |
 | `sw.js`, `manifest.webmanifest` | installable, and works offline |
 
 Four kinds of note, matching the desktop app: plain text notes that stamp themselves with
@@ -38,13 +40,37 @@ Any static server will do:
 
 then open <http://localhost:8777/>.
 
-There are three test pages, all of which should be green:
+There are five test pages, all of which should be green:
 
 | Page | Checks |
 |---|---|
 | `test.html` | every line of every note is re-written byte for byte |
 | `sync.test.html` | the sync engine, against a stand-in OneDrive |
 | `alarms.test.html` | the timer arithmetic shared with the desktop app |
+| `github.test.html` | the GitHub sync backend |
+| `dash.test.html` | the dashboards, on the same scenarios as the desktop app's dashboard tests |
+
+## Dashboards
+
+The lined-square button at the top of the list (and on an open Today's List, monthly list or
+tracker) opens **Dashboards**, the same four the desktop app has:
+
+- **Today** - done today, time left, your streak of days with a task finished, the next alarm,
+  the last 7 days, and **For today**: suggestions from all your lists, most urgent first
+  (overdue, due today, today's reminders, due tomorrow, tasks planned for later or left on an
+  earlier day, work in progress, due this week, habits, other lists). **+ Add** puts one at the
+  end of today; **Not relevant** hides it for two weeks on this device. The phone does not carry
+  unfinished tasks over to today the way the desktop does - it suggests them instead
+  (*Not done on Fri 9 Oct* > **Move to today**).
+- **Journal** - your journal streak, this month, and 16 weeks as a calendar; tap a day to read
+  what was written in every note that day.
+- **Quarter** - the monthly activity lists three months at a time, the quarter's pace, and
+  suggestions (to Today's List, carry over, create a missing month's list).
+- **Streaks** - days in a row on each task tracker, and which streak ends tonight.
+
+Whatever a dashboard adds is an ordinary edit of the note here, written in the desktop's
+format; it reaches the desktop with the next sync. `?dash=today` (or `journal`, `quarter`,
+`streaks`) in the address opens straight onto one.
 
 ## Connecting it to OneDrive
 

@@ -14,6 +14,7 @@ import { syncAll, describe } from './sync.js';
 import * as graph from './graph.js';
 import * as github from './github.js';
 import { timerState, startTimer, pauseTimer, resetTimer, fmt, checkAlarms, askPermission, notifyState } from './alarms.js';
+import { openDashboard, redrawDashboard, DASH_FOR_KIND } from './dashview.js';
 
 // the Windows app's palette: background, title bar, text
 const PALETTE = [
@@ -32,6 +33,7 @@ const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt
 
 let openId = null;
 let saveTimer = null;
+let dashOpen = false;   // the Dashboards screen is in the note area
 
 // --- the list ----------------------------------------------------------------------------
 
@@ -134,10 +136,15 @@ function save(id, text, extra = {}) {
 }
 
 function openNote(id) {
-  openId = id;
   const j = store.get(id);
   if (!j) return;
+  openId = id;
+  dashOpen = false;
   const kind = noteKind(j);
+  for (const b of ['#rename', '#colour', '#del']) $(b).hidden = false;
+  $('#noteDash').hidden = !DASH_FOR_KIND[kind];
+  $('#noteDash').title = { today: "Today's dashboard and suggestions", monthly: 'Quarterly pane: this month and the two around it',
+                           tracker: 'Streaks: days in a row on each tracker' }[DASH_FOR_KIND[kind]] || 'Dashboard';
   const [bg, bar, ink] = PALETTE[(j.color ?? 0) % PALETTE.length];
   const screen = $('#noteScreen');
   screen.classList.remove('off');
@@ -160,8 +167,27 @@ function openNote(id) {
 
 const parse = (j) => ({ text: String(j.text ?? ''), name: (j.name ?? '').trim(), kind: noteKind(j) });
 
+// --- the Dashboards screen: Today, Journal, Quarter, Streaks (dashview.js) ----------------------
+function showDashboard(tab) {
+  openId = null;
+  dashOpen = true;
+  const screen = $('#noteScreen');
+  screen.classList.remove('off');
+  $('#listScreen').classList.toggle('on', window.innerWidth >= 900);
+  screen.classList.add('on');
+  for (const v of ['--noteBg', '--noteBar', '--noteInk']) screen.style.removeProperty(v);
+  $('#noteBar').style.color = '';
+  $('#noteTitle').firstChild.textContent = 'Dashboards ';
+  $('#noteSub').textContent = '';
+  for (const b of ['#rename', '#colour', '#del', '#noteDash']) $(b).hidden = true;
+  const body = $('#noteBody');
+  body.style.color = '';
+  openDashboard(body, tab, { store, openNote });
+}
+
 function closeNote() {
   openId = null;
+  dashOpen = false;
   $('#noteScreen').classList.add('off');
   if (window.innerWidth < 900) { $('#noteScreen').classList.remove('on'); $('#listScreen').classList.add('on'); }
   $('#noteBody').textContent = '';
@@ -454,6 +480,11 @@ $('#del').onclick = () => {
   closeNote();
 };
 store.onChange(() => { if (!document.hidden) renderList(); });
+$('#dashBtn').onclick = () => showDashboard();
+$('#noteDash').onclick = () => {
+  const j = openId && store.get(openId);
+  showDashboard(j ? DASH_FOR_KIND[noteKind(j)] : undefined);
+};
 
 // one second: refresh running timers in place, without redrawing the note under your finger
 setInterval(() => {
@@ -515,6 +546,7 @@ async function doSync() {
     }
     renderList();
     if (openId && store.get(openId)) openNote(openId);
+    else if (dashOpen) redrawDashboard();   // fresh notes: fresh numbers
   } catch (e) {
     say(e.message, 'bad');
   }
@@ -635,7 +667,9 @@ if ('serviceWorker' in navigator) {
   if (window.innerWidth >= 900) $('#noteScreen').classList.add('on');
 
   const want = new URLSearchParams(location.search).get('open');
-  if (want) {
+  const dash = new URLSearchParams(location.search).get('dash');   // ?dash=today|journal|quarter|streaks
+  if (dash) showDashboard(['today', 'journal', 'quarter', 'streaks'].includes(dash) ? dash : 'today');
+  else if (want) {
     const hit = want === 'today'
       ? store.all().find(({ json }) => json.todo && json.today)
       : (store.get(want) ? { id: want } : null);

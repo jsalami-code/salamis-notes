@@ -1,0 +1,185 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Dashboards</title>
+<style>
+  body { font: 13px/1.5 Consolas, monospace; margin: 16px; background: #fbfaf7; color: #222; }
+  h1 { font: 600 16px/1.4 "Segoe UI", sans-serif; }
+  .ok { color: #1a7f37; } .bad { color: #b42318; }
+  #sum { font: 600 14px "Segoe UI", sans-serif; margin: 10px 0 18px; }
+  pre { margin: 2px 0 8px 24px; color: #555; white-space: pre-wrap; }
+</style>
+<h1>Dashboards - the same scenarios as the desktop app's dashboard tests</h1>
+<div id="sum">running...</div>
+<div id="out"></div>
+<script type="module">
+import {
+  readNotes, findTodayList, todayStats, todaySuggestions, journalStats, quarterView, quarterSuggestions, trackerStreaks,
+  streak, addTaskToTodayText, moveTaskToTodayText, addActivityText, monthlyListText, quarterStart, startOfDay, addDays, taskKey,
+} from './dash.js';
+import { dateHeading, parseTracker, parseTodo, writeDate, writeStampMin } from './notes.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+function check(label, ok, detail = '') {
+  const d = document.createElement('div');
+  d.className = ok ? 'ok' : 'bad';
+  d.textContent = (ok ? 'PASS  ' : 'FAIL  ') + label;
+  out.append(d);
+  if (!ok && detail) { const p = document.createElement('pre'); p.textContent = detail; out.append(p); }
+  ok ? pass++ : fail++;
+}
+
+// --- notes, relative to today (as tests\fixtures\make-dash.ps1 and make-quarter.ps1 make them) ---
+const now = new Date();
+const today = startOfDay(now);
+const D = (n) => addDays(today, n);
+const S = (n) => dateHeading(D(n));
+const I = (n) => writeDate(D(n));
+const T = (n, h = 0, m = 0) => { const d = D(n); d.setHours(h, m); return writeStampMin(d); };
+const first = new Date(today.getFullYear(), today.getMonth(), 1);
+const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+const monthName = (d) => d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+const lt = (d, h = 0, m = 0) => { const x = new Date(d); x.setHours(h, m); return writeStampMin(x); };
+
+const todayList = [
+  S(-5), '[x] Bible Study ~30m', '[x] Gym', '',
+  S(-4), '[x] Duolingo ~15m', '',
+  S(-3), '[x] Bible Study ~30m', '[x] Gym', '[ ] Left behind ~20m', '',
+  S(-2), '[x] Bible Study ~30m', '[x] Duolingo ~15m', '',
+  S(-1), '[x] Bible Study ~30m', '[x] Duolingo ~15m', '',
+  S(0), `[ ] Faculty Meeting Update ~2h @${T(0, 9, 30)}`, '[x] Day Prep ~30m', `[ ] Paper Publication ~2h @from ${I(-3)}`,
+  `[ ] Staff Meeting ~60m @${T(0, 23, 50)} @cal 1a2b3c4d`, '',
+  S(1), '[ ] Write report ~45m', '',
+  S(5), '[ ] Far task', '',
+  S(10), '[ ] Too far',
+].join('\r\n');
+const mon = [
+  `TASK: ${monthName(first)} - Activity List | started ${lt(first, 8)}`, '', '== NOT STARTED ==',
+  `[ ] Overdue report | added ${T(-9)} | due ${I(-3)}`,
+  `[ ] Due today item | added ${T(-9)} | due ${I(0)}`,
+  `[ ] PHD Progress Hours | added ${T(-2)} | due ${I(60)} | alarm ${T(-1, 23, 55)} daily`,
+  `[ ] Due tomorrow item | added ${T(-9)} | due ${I(1)}`,
+  `[ ] Due in five days | added ${T(-9)} | due ${I(5)}`,
+  `[ ] Someday item | added ${T(-9)}`,
+  `[ ] Faculty Meeting Update | added ${T(-9)} | due ${I(0)}`, '',
+  '== ONGOING ==', `[~] Weekly Review | added ${T(-9)} | started ${T(-3, 10)}`, '',
+  '== FINISHED ==', `[x] Finished item | added ${T(-9)} | started ${T(-8)} | finished ${T(-7)} | spent 1:00:00`,
+].join('\r\n');
+const trk = [`TASK: Thesis | started ${T(-6)}`, '', '== OBJECTIVES ==', `[ ] Bible Study | added ${T(-6)} | due ${I(0)}`, '', '== ONGOING ==', '', '== FINISHED =='].join('\r\n');
+const sep = [`TASK: ${monthName(prev)} - Activity List | started ${lt(prev, 9)}`, '', '== NOT STARTED ==',
+  `[ ] Grant proposal | added ${lt(addDays(prev, 2))} | due ${writeDate(addDays(prev, 25))}`, '', '== ONGOING ==', '', '== FINISHED ==',
+  `[x] Old finished | added ${lt(addDays(prev, 2))} | finished ${lt(addDays(prev, 5))}`].join('\r\n');
+const dup = `TASK: ${monthName(first)} - Activity List | started ${lt(addDays(first, 2), 8)}\r\n\r\n== NOT STARTED ==\r\n\r\n== ONGOING ==\r\n\r\n== FINISHED ==`;
+const trkA = [`TASK: Paper writing | started ${T(-2, 9)}`, '', '== OBJECTIVES ==', `[ ] Draft | added ${T(-1, 10)}`, '', '== ONGOING ==', '', '== FINISHED ==',
+  `[x] Outline | added ${T(-2, 9)} | started ${T(-2, 9)} | finished ${T(0, 8)} | spent 2:30:00`].join('\r\n');
+const trkB = [`TASK: Fieldwork | started ${T(-2, 9)}`, '', '== OBJECTIVES ==', `[ ] Survey | added ${T(-1, 10)}`, '', '== ONGOING ==', '', '== FINISHED ==', '', '== NOTES ==', S(-1), '10:00 went out'].join('\r\n');
+const trkC = [`TASK: Old project | started ${T(-25, 9)}`, '', '== OBJECTIVES ==', `[ ] Thing | added ${T(-24, 10)}`, '', '== ONGOING ==', '', '== FINISHED =='].join('\r\n');
+const journal = [S(-35), 'long ago entry', '', S(-4), 'one two three four', '', S(-2), 'five six', '', S(-1), 'seven eight nine', '', S(0), 'ten eleven twelve thirteen fourteen'].join('\r\n');
+
+const stamp = (d) => writeStampMin(d) + ':00';
+const raw = [
+  { id: 'real', json: { text: todayList, todo: true, today: true, edited: stamp(now) } },
+  { id: 'mon', json: { text: mon, tracker: true, monthly: true, edited: stamp(now) } },
+  { id: 'trk', json: { text: trk, tracker: true, edited: stamp(now) } },
+  { id: 'other', json: { text: [S(-1), '[ ] Call the bank', '[x] Done thing'].join('\r\n'), todo: true, edited: stamp(D(-1)) } },
+  { id: 'sep', json: { text: sep, tracker: true, monthly: true, edited: stamp(addDays(prev, 20)) } },
+  { id: 'dup', json: { text: dup, tracker: true, monthly: true, edited: stamp(addDays(first, 2)) } },
+  { id: 'trkA', json: { text: trkA, tracker: true, edited: stamp(now) } },
+  { id: 'trkB', json: { text: trkB, tracker: true, edited: stamp(D(-1)) } },
+  { id: 'trkC', json: { text: trkC, tracker: true, edited: stamp(D(-20)) } },
+  { id: 'journal', json: { text: journal, name: 'Daily Journal', edited: stamp(now) } },
+];
+const notes = readNotes(raw);
+const tl = findTodayList(notes);
+
+// --- Today: suggestions -----------------------------------------------------------------------
+check("Today's List: the marked one", tl && tl.id === 'real');
+const sug = todaySuggestions(notes, tl, new Set(), now);
+const titles = sug.map((s) => s.title);
+const pre = document.createElement('pre'); pre.textContent = sug.map((s) => `[${s.rank}] ${s.title} - ${s.why} - ${s.from}`).join('\n'); out.append(pre);
+const first5 = titles.slice(0, 5).join('|');
+// (last month's list is here too: its unfinished Grant proposal is the most overdue of all)
+check('most urgent first: overdue (oldest first), due today (x2), reminder, due tomorrow',
+  /^Grant proposal\|Overdue report\|(Bible Study\|Due today item|Due today item\|Bible Study)\|PHD Progress Hours\|Due tomorrow item$/.test(titles.slice(0, 6).join('|')), titles.slice(0, 6).join('|'));
+check('then: left behind on an earlier day, planned later, in progress, due this week, habit, other list',
+  titles.slice(6).join('|') === 'Left behind|Write report|Far task|Weekly Review|Due in five days|Duolingo|Call the bank', titles.slice(6).join('|'));
+check('nothing already on today, far off, undated or finished', !['Faculty Meeting Update', 'Too far', 'Someday item', 'Finished item'].some((t) => titles.includes(t)));
+const bs = sug.filter((s) => s.title === 'Bible Study');
+check('a task is suggested once, for its most urgent reason (Bible Study: due today, not habit)', bs.length === 1 && bs[0].why === 'Due today');
+check('habits need 3 of the last 7 days (Duolingo yes, Gym no)', sug.find((s) => s.title === 'Duolingo')?.why === 'Done on 3 of the last 7 days' && !titles.includes('Gym'));
+const phd = sug.find((s) => s.title === 'PHD Progress Hours');
+const at = new Date(today); at.setHours(23, 55);
+check('a daily reminder: today at its time, carried as the alarm', phd.why === 'Reminder at 23:55 (daily)' && (now < at ? +phd.alarm === +at : phd.alarm === null));
+check('the other list is called "Another to-do list"; monthly lists "<Month> list"', sug.find((s) => s.title === 'Call the bank').from === 'Another to-do list' && sug[0].from.endsWith(' list'));
+check('hidden suggestions stay hidden', !todaySuggestions(notes, tl, new Set(['todo:other:call the bank']), now).some((s) => s.title === 'Call the bank'));
+
+// --- Today: numbers ---------------------------------------------------------------------------
+const st = todayStats(tl, now);
+check('today: 1 of 4 done, 5h to go, 1 carried, 1 from the calendar', st.done === 1 && st.total === 4 && st.togo === 300 && st.carried === 1 && st.cal === 1, JSON.stringify({ done: st.done, total: st.total, togo: st.togo }));
+check('streak: 6 days (5 earlier days and today), best 6', st.streak.current === 6 && st.streak.best === 6 && st.streak.today);
+check('the week: tasks finished per day', st.week.map((w) => w.n).join(',') === '0,2,1,2,2,2,1', st.week.map((w) => w.n).join(','));
+const fm = new Date(today); fm.setHours(9, 30); const sm = new Date(today); sm.setHours(23, 50);
+const want = now < fm ? ['Faculty Meeting Update', fm] : now < sm ? ['Staff Meeting', sm] : null;
+check('next alarm: the first still to come today (09:30 meeting, else the 23:50 calendar event)', want ? +st.next === +want[1] && st.nextTitle === want[0] : true, String(st.next) + ' ' + st.nextTitle);
+
+// --- Today: acting on a suggestion ------------------------------------------------------------
+let txt = addTaskToTodayText(todayList, { title: 'Overdue report', dur: 0, alarm: null }, now);
+let rows = parseTodo(txt);
+const todayAt = rows.findIndex((r) => r.type === 'stamp' && r.raw === S(0));
+const tomorrowAt = rows.findIndex((r) => r.type === 'stamp' && r.raw === S(1));
+const addedAt = rows.findIndex((r) => r.type === 'task' && r.task.title === 'Overdue report');
+check('+ Add: at the end of today, before tomorrow', addedAt > todayAt && addedAt < tomorrowAt && rows[addedAt - 1].task?.title === 'Staff Meeting');
+check('...everything else untouched', txt.replace('\r\n[ ] Overdue report', '') === todayList);
+check('a habit keeps its usual duration', addTaskToTodayText('', { title: 'Duolingo', dur: 15 }, now) === `${S(0)}\r\n[ ] Duolingo ~15m`);
+txt = moveTaskToTodayText(todayList, 'Write report', D(1), now);
+check('Move to today: from tomorrow into today; tomorrow (now empty) loses its heading',
+  txt && !txt.includes(S(1)) && txt.includes('[ ] Staff Meeting ~60m @' + T(0, 23, 50) + ' @cal 1a2b3c4d\r\n[ ] Write report ~45m\r\n\r\n' + S(5)));
+txt = moveTaskToTodayText(todayList, 'Left behind', D(-3), now);
+check('Move to today: an earlier day keeps its finished tasks', txt && txt.includes(S(-3) + '\r\n[x] Bible Study ~30m\r\n[x] Gym\r\n\r\n') && txt.includes('[ ] Left behind ~20m'));
+check('Move to today: a task changed meanwhile is not moved', moveTaskToTodayText(todayList, 'No such task', D(1), now) === null);
+
+// --- Journal ------------------------------------------------------------------------------------
+const js = journalStats(notes, now);
+const md = [0, 1, 2, 4].filter((k) => D(-k).getMonth() === today.getMonth());
+const words = md.reduce((s, k) => s + ({ 0: 5, 1: 3, 2: 2, 4: 4 })[k], 0);
+check('journal streak: 3 days, today written, best 3', js.streak.current === 3 && js.streak.best === 3 && js.writtenToday);
+check(`days written this month: ${md.length}; words ${words}`, js.monthDays === md.length && js.words === words, JSON.stringify({ d: js.monthDays, w: js.words }));
+check('calendar cells: journal days, other-note days', js.days.get(I(0)).journal && js.days.get(I(-5)).other && !js.days.get(I(-5)).journal);
+check("on this day: a week ago - nothing; most written in: Today's List first", js.onThisDay[0].info === null && js.top[0].name === "Today's List");
+
+// --- Quarter --------------------------------------------------------------------------------------
+const v = quarterView(notes, quarterStart(now), now);
+const m0 = v.months.find((m) => m.current);
+check('this month: its two lists together - 9 activities, 1 done, 1 ongoing, 1 overdue', m0.items.length === 9 && m0.n.done === 1 && m0.n.doing === 1 && m0.late === 1 && m0.lists.length === 2);
+check('the quarter: 1 of 9 done, 1 overdue, 4 due in 14 days, 1 ongoing, 1h worked', v.done === 1 && v.total === 9 && v.late === 1 && v.soon.length === 4 && v.doing === 1 && v.worked === 3600, JSON.stringify({ done: v.done, total: v.total, late: v.late, soon: v.soon.length, worked: v.worked }));
+check('the pace is said', /^(on track|behind) - 11% done, \d+% of the time gone$/.test(v.pace), v.pace);
+const qs = quarterSuggestions(notes, v, new Set(), now);
+const qt = qs.map((s) => s.title);
+const pre2 = document.createElement('pre'); pre2.textContent = qs.map((s) => `[${s.rank}] ${s.title} - ${s.why} - ${s.doText}`).join('\n'); out.append(pre2);
+check("to Today's List: overdue first, due soon, the daily reminder - not what today already has",
+  qt[0] === 'Overdue report' && ['Due today item', 'Due tomorrow item', 'PHD Progress Hours'].every((t) => qt.includes(t)) && !qt.includes('Faculty Meeting Update'));
+check("carry over: last month's unfinished, not its finished one", qs.find((s) => s.title === 'Grant proposal')?.action === 'carry' && !qt.includes('Old finished'));
+const months = v.months.filter((m) => !m.current && m.month > today);
+check(`create: the ${months.length} later month(s) of the quarter without a list`, qs.filter((s) => s.action === 'create').length === months.length);
+check('no deadline -> open; the empty duplicate list -> open it', qs.find((s) => s.title === 'Someday item')?.why === 'No deadline yet' && qs.some((s) => s.id === 'dup' && s.action === 'open'));
+const act = addActivityText(mon, true, { name: 'Grant proposal', due: null }, now);
+check('carry over writes an ordinary not-started activity at the end of Not started',
+  /\[ \] Faculty Meeting Update \| added .* \| due .*\r\n\[ \] Grant proposal \| added \d{4}-\d\d-\d\d \d\d:\d\d\r\n\r\n== ONGOING ==/.test(act));
+const nov = monthlyListText(new Date(2026, 10, 15));
+check('a new monthly list: started on the 1st, the desktop format', nov === 'TASK: November 2026 - Activity List | started 2026-11-01 00:00\r\n\r\n== NOT STARTED ==\r\n\r\n== ONGOING ==\r\n\r\n== FINISHED ==', nov);
+
+// --- Streaks -----------------------------------------------------------------------------------
+const ts = trackerStreaks(notes, {}, now);
+const by = (n) => ts.rows.find((r) => r.name === n);
+check('trackers only (no monthly lists): 4', ts.rows.length === 4);
+check('Paper writing: 3 days, worked today, at the top', by('Paper writing').st.current === 3 && by('Paper writing').st.today && ts.rows[0].name === 'Paper writing');
+check('Fieldwork: 2 days, at risk (notes count as work)', by('Fieldwork').st.current === 2 && by('Fieldwork').st.atRisk);
+check('Old project: no streak, best 2', by('Old project').st.current === 0 && by('Old project').st.best === 2);
+check('1 of 4 worked on today; the warning names Fieldwork', ts.todayCount === 1 && ts.atRisk.map((r) => r.name).join() === 'Fieldwork');
+check('include monthly lists: they join', trackerStreaks(notes, { monthly: true }, now).rows.length > 4);
+check('streak: broken after a missed day', streak([D(-2)], today).current === 0 && streak([D(-2)], today).best === 1);
+check('keys ignore case and punctuation', taskKey('PHD Progress Hours!') === taskKey('phd progress  hours'));
+
+document.getElementById('sum').innerHTML = fail ? `<span class="bad">${fail} failed</span>, ${pass} passed` : `<span class="ok">all ${pass} checks passed</span>`;
+</script>
