@@ -87,6 +87,10 @@ export const TODO_RX = /^(\s*)\[([ xX]?)\]\s?(.*)$/;
 
 const FROM_RX = /\s+@from\s+(\d{4}-\d{2}-\d{2})$/i;
 const CAL_RX = /\s+@cal\s+([0-9a-f]{8})$/i;
+// a task that comes round again: @every day / week / 2weeks / month / mon..sun
+// the tracker started for this task, so it never gets a second one
+const TRK_LINK_RX = /\s+@trk\s+([0-9a-f]{8})$/i;
+const EVERY_RX = /\s+@every\s+(day|week|2weeks|month|mon|tue|wed|thu|fri|sat|sun)$/i;
 const SNOOZE_RX = /\s+@snooze\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/i;
 const TIMER_RX = /\s+@timer\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/i;
 const WATCH_RX = /\s+@watch\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/i;
@@ -96,7 +100,7 @@ const ALARM_RX = /\s+@(?:(\d{4}-\d{2}-\d{2})\s+)?(\d{1,2})(?::?(\d{2}))?(?::(\d{
 
 function emptyTask(title) {
   return { title, dur: 0, alarm: null, daily: false, timer: null, snooze: null,
-           left: null, watch: null, spent: null, from: null, cal: null };
+           left: null, watch: null, spent: null, from: null, cal: null, every: '', trk: null };
 }
 
 // Split-Task: read the tokens off the end of the line, last written wins.
@@ -107,6 +111,10 @@ export function splitTask(line) {
   for (let n = 0; n < 14; n++) {
     let x = FROM_RX.exec(s);
     if (x) { if (!m.from) m.from = readDate(x[1]); s = s.slice(0, x.index); continue; }
+    x = TRK_LINK_RX.exec(s);
+    if (x) { if (!m.trk) m.trk = x[1].toLowerCase(); s = s.slice(0, x.index); continue; }
+    x = EVERY_RX.exec(s);
+    if (x) { if (!m.every) m.every = x[1].toLowerCase(); s = s.slice(0, x.index); continue; }
     x = CAL_RX.exec(s);
     if (x) { if (!m.cal) m.cal = x[1].toLowerCase(); s = s.slice(0, x.index); continue; }
     x = SNOOZE_RX.exec(s);
@@ -174,6 +182,8 @@ export function formatTask(m) {
   else if (m.left != null) s += ' @paused ' + formatHms(m.left);
   else if (m.watch) s += ' @watch ' + writeStamp(m.watch);
   else if (m.spent != null) s += ' @spent ' + formatHms(m.spent);
+  if (m.every) s += ' @every ' + m.every;
+  if (m.trk) s += ' @trk ' + m.trk;
   if (m.cal) s += ' @cal ' + m.cal;
   if (m.from) s += ' @from ' + writeDate(m.from);
   return s;
@@ -201,15 +211,20 @@ export function formatTodo(rows) {
 }
 
 // --- task trackers and monthly activity lists ----------------------------------------------
-//   TASK: Surv Popoola MSc thesis | started 2026-10-01 15:40
+//   TASK: Surv Popoola MSc thesis | started 2026-10-01 15:40 | finished 2026-10-13 15:12
 //   == OBJECTIVES ==            (a monthly list calls this NOT STARTED)
 //   [ ] Draft chapter 3 | added 2026-10-01 15:42 | due 2026-10-07
-export const TRK_TASK_RX = /^\s*TASK:\s?(.*?)(?:\s+\|\s+started\s+(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}))?\s*$/;
-export const TRK_ITEM_RX = /^\s*\[([ ~xX])\]\s?(.*?)((?:\s+\|\s+(?:added|started|finished|timer|snooze|spent|alarm|due)\s+[^|]*?)*)\s*$/;
+// "| finished" on the TASK line means every objective is done, so the task itself is done.
+export const TRK_TASK_RX = /^\s*TASK:\s?(.*?)((?:\s+\|\s+(?:started|finished)\s+\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})*)\s*$/;
+const TRK_TASK_PART_RX = /\|\s+(started|finished)\s+(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})/g;
+export const TRK_ITEM_RX = /^\s*\[([ ~xX])\]\s?(.*?)((?:\s+\|\s+(?:added|started|start|finished|timer|snooze|spent|alarm|due|every)\s+[^|]*?)*)\s*$/;
 export const TRK_HEAD_RX = /^\s*==\s*(.+?)\s*==\s*$/;
 const TRK_STAMP_RX = /(added|started|finished)\s+(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})/g;
 const TRK_ALARM_RX = /alarm\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?(\s+daily)?/;
 const TRK_DUE_RX = /due\s+(\d{4}-\d{2}-\d{2})/;
+// the day to begin. "start" only - "started 2026-10-07 09:00" is a different part.
+const TRK_START_RX = /start\s+(\d{4}-\d{2}-\d{2})/;
+const TRK_EVERY_RX = /every\s+(day|week|2weeks|month|mon|tue|wed|thu|fri|sat|sun)/i;
 const TRK_SNOOZE_RX = /snooze\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/;
 const TRK_TIMER_RX = /timer\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})/;
 const TRK_SPENT_RX = /spent\s+(\d+):(\d{2}):(\d{2})/;
@@ -225,12 +240,14 @@ export function sectionTitle(state, monthly) {
 }
 
 function readTrkMeta(parts) {
-  const m = { added: null, started: null, finished: null, due: null, alarm: null,
-              daily: false, snooze: null, watch: null, spent: null };
+  const m = { added: null, started: null, finished: null, start: null, due: null, alarm: null,
+              daily: false, snooze: null, watch: null, spent: null, every: '' };
   if (!parts) return m;
   let x;
   TRK_STAMP_RX.lastIndex = 0;
   while ((x = TRK_STAMP_RX.exec(parts)) !== null) m[x[1]] = readStamp(x[2]);
+  if ((x = TRK_EVERY_RX.exec(parts))) m.every = x[1].toLowerCase();
+  if ((x = TRK_START_RX.exec(parts))) m.start = readDate(x[1]);
   if ((x = TRK_DUE_RX.exec(parts))) m.due = readDate(x[1]);
   if ((x = TRK_ALARM_RX.exec(parts))) { m.alarm = stampFrom(x, 1); m.daily = !!x[5]; }
   if ((x = TRK_SNOOZE_RX.exec(parts))) m.snooze = stampFrom(x, 1);
@@ -241,14 +258,20 @@ function readTrkMeta(parts) {
 
 export function parseTracker(text) {
   const lines = String(text ?? '').split(/\r?\n/);
-  const t = { title: '', started: null, items: [], notes: null, head: lines[0] ?? '' };
+  const t = { title: '', started: null, finished: null, items: [], notes: null, head: lines[0] ?? '' };
   let state = 'todo', inNotes = false;
   const notes = [];
   lines.forEach((line, i) => {
     if (inNotes) { notes.push(line); return; }
     if (i === 0) {
       const m = TRK_TASK_RX.exec(line);
-      if (m) { t.title = m[1].trim(); t.started = m[2] ? readStamp(m[2]) : null; return; }
+      if (m) {
+        t.title = m[1].trim();
+        TRK_TASK_PART_RX.lastIndex = 0;
+        let p;
+        while ((p = TRK_TASK_PART_RX.exec(m[2] || ''))) t[p[1]] = readStamp(p[2]);
+        return;
+      }
     }
     const h = TRK_HEAD_RX.exec(line);
     if (h) {
@@ -277,6 +300,7 @@ export function formatTracker(t, monthly) {
   const out = [];
   let head = 'TASK: ' + (t.title || '').trim();
   if (t.started) head += ' | started ' + writeStampMin(t.started);
+  if (t.finished) head += ' | finished ' + writeStampMin(t.finished);
   out.push(head);
   for (const sec of TRK_SECTIONS) {
     out.push('');
@@ -287,6 +311,8 @@ export function formatTracker(t, monthly) {
       let s = mark + (it.name || '').trim();
       const m = it.meta || {};
       for (const k of ['added', 'started', 'finished']) if (m[k]) s += ` | ${k} ` + writeStampMin(m[k]);
+      if (m.every) s += ' | every ' + m.every;
+      if (m.start) s += ' | start ' + writeDate(m.start);
       if (m.due) s += ' | due ' + writeDate(m.due);
       if (m.alarm) s += ' | alarm ' + writeStamp(m.alarm) + (m.daily ? ' daily' : '');
       if (m.snooze) s += ' | snooze ' + writeStampSec(m.snooze);

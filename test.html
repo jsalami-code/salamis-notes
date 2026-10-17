@@ -47,6 +47,11 @@ const taskLines = [
   'Reading @spent 0:05:12',
   'Faculty meeting ~1h45m @2026-10-02 16:00 @cal b5e97d94',
   'Carried task ~2h @from 2026-10-01',
+  'Morning review ~15m @every day',
+  'Thesis chapter ~2h @every week @trk 1a2b3c4d',
+  'Staff meeting ~1h @2026-10-19 09:00 @every mon',
+  'Rent ~10m @every month @from 2026-10-01',
+  'Payroll check @every 2weeks',
   'Everything ~1h30m @2026-10-07 09:00 daily @snooze 2026-10-07 10:00 @timer 2026-10-07 09:30:15 @cal 1a2b3c4d @from 2026-10-01',
   'Email about @7 something',          // a bare @7 is text, not an alarm
   'Price is ~45 things',               // ~45 at the end would be a duration; mid-line it is text
@@ -59,6 +64,8 @@ const trackerText = [
   '== OBJECTIVES ==',
   '[ ] Draft chapter 3 | added 2026-10-01 15:42',
   '[ ] Book the lab | added 2026-10-01 15:45 | due 2026-10-07 | alarm 2026-10-07 09:00 daily',
+  '[ ] Field trip | added 2026-10-01 15:50 | start 2026-10-05 | due 2026-10-09',
+  '[ ] Team meeting | added 2026-10-01 15:55 | every week | due 2026-10-09',
   '',
   '== ONGOING ==',
   '[~] Field survey | added 2026-09-28 09:00 | started 2026-10-01 10:12 | timer 2026-10-01 14:05:30',
@@ -72,6 +79,25 @@ const trackerText = [
   const t = parseTracker(trackerText);
   t.items.forEach((it) => { it.dirty = true; });
   check('tracker fixture (' + t.items.length + ' items)', formatTracker(t, false), trackerText);
+}
+
+// a task whose every objective is finished: "| finished" on the TASK line itself
+const doneTaskText = [
+  'TASK: Surv Popoola MSc thesis | started 2026-10-01 15:40 | finished 2026-10-13 15:12',
+  '',
+  '== OBJECTIVES ==',
+  '',
+  '== ONGOING ==',
+  '',
+  '== FINISHED ==',
+  '[x] Draft chapter 3 | added 2026-10-01 15:42 | finished 2026-10-13 15:12',
+].join('\r\n');
+{
+  const t = parseTracker(doneTaskText);
+  t.items.forEach((it) => { it.dirty = true; });
+  check('a finished task keeps its stamp', formatTracker(t, false), doneTaskText);
+  check('the name is read without the stamps', t.title, 'Surv Popoola MSc thesis');
+  check('the task has a finished time', t.finished instanceof Date && !Number.isNaN(+t.finished), true);
 }
 
 const monthlyText = [
