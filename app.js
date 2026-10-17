@@ -90,7 +90,7 @@ function renderList() {
 
   if (!shown.length) {
     list.append(el('div', 'empty', all.length ? 'Nothing matches.'
-      : 'No notes here yet. Set up OneDrive sync in the settings to bring yours in, or tap + to start one.'));
+      : 'No notes here yet. Set up sync in the settings (the gear) to bring yours in, or tap + to start one.'));
     return;
   }
   for (const g of GROUPS) {

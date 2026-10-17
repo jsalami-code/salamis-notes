@@ -1,7 +1,7 @@
 {
   "name": "SALAMI's Notes",
   "short_name": "SALAMI's Notes",
-  "description": "Your sticky notes, to-do lists, task trackers and monthly activity lists, on the same OneDrive folder as the Windows app.",
+  "description": "Your sticky notes, to-do lists, task trackers and monthly activity lists, kept in step with the Windows app.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
