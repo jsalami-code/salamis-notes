@@ -584,7 +584,7 @@ $('#cfgSave').onclick = () => {
   graph.setConfig({ clientId: $('#cfgId').value.trim(), notesPath: $('#cfgPath').value.trim() });
   github.setConfig({
     owner: $('#ghOwner').value.trim(), repo: $('#ghRepo').value.trim(),
-    path: $('#ghPath').value.trim() || 'notes', token: $('#ghToken').value.trim(),
+    path: $('#ghPath').value.trim() || 'notes2', token: $('#ghToken').value.trim(),
   });
   $('#cfgMsg').textContent = backend() === 'graph' ? 'Saved. Sign in next.' : 'Saved. Try Test connection.';
 };

@@ -14,7 +14,7 @@
 const API = 'https://api.github.com';
 const CFG = 'sn:gh';
 
-export const defaults = { owner: '', repo: '', path: 'notes', token: '' };
+export const defaults = { owner: '', repo: '', path: 'notes2', token: '' };
 
 export function config() {
   let saved = {};
