@@ -8,10 +8,10 @@
 //
 // Bump CACHE when the shell changes; the old one is thrown away on activate.
 
-const CACHE = 'sticky-shell-v3';
+const CACHE = 'sticky-shell-v4';
 const SHELL = [
   './', './index.html', './styles.css', './app.js', './notes.js', './store.js',
-  './sync.js', './graph.js', './github.js', './alarms.js', './dash.js', './dashview.js', './manifest.webmanifest',
+  './sync.js', './graph.js', './github.js', './alarms.js', './dash.js', './dashview.js', './shared.js', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-maskable-512.png',
 ];
 

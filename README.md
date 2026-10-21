@@ -40,7 +40,7 @@ Any static server will do:
 
 then open <http://localhost:8777/>.
 
-There are five test pages, all of which should be green:
+There are six test pages, all of which should be green:
 
 | Page | Checks |
 |---|---|
@@ -49,6 +49,7 @@ There are five test pages, all of which should be green:
 | `alarms.test.html` | the timer arithmetic shared with the desktop app |
 | `github.test.html` | the GitHub sync backend |
 | `dash.test.html` | the dashboards, on the same scenarios as the desktop app's dashboard tests |
+| `shared.test.html` | one task in both lists (Today's List and the month's list): trackers, sending across, finishing in both |
 
 ## Dashboards
 

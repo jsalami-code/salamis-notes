@@ -1,0 +1,133 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>One task in both lists - tests</title>
+<style>
+  body { font: 13px/1.6 Consolas, monospace; margin: 16px; background: #fbfaf7; color: #222; }
+  h1 { font: 600 16px/1.4 "Segoe UI", sans-serif; }
+  .ok { color: #1a7f37; } .bad { color: #b42318; }
+  .case { margin-left: 16px; }
+  pre { margin: 2px 0 10px 32px; padding: 6px 8px; background: #fff; border-left: 3px solid #b42318; white-space: pre-wrap; }
+  #sum { font: 600 14px "Segoe UI", sans-serif; margin: 10px 0 18px; }
+</style>
+<h1>One task in both lists - Today's List and this month's list (the cases unit-shared-tasks.ps1 checks on the desktop)</h1>
+<div id="sum">running...</div>
+<div id="out"></div>
+<script type="module">
+import { taskKey, trackerFor, newTracker, sendToToday, sendToMonth, findMonthList, finishElsewhere } from './shared.js';
+import { dateHeading, parseTracker } from './notes.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const log = (h) => { const d = document.createElement('div'); d.innerHTML = h; out.append(d); };
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+function check(label, ok, detail = '') {
+  if (ok) { pass++; log(`<div class="case ok">ok&nbsp; ${esc(label)}</div>`); return; }
+  fail++;
+  log(`<div class="case bad">FAIL ${esc(label)}</div><pre>${esc(detail)}</pre>`);
+}
+
+// --- a store in memory, with the calls shared.js makes ---------------------------------
+function makeStore(notes) {
+  const data = JSON.parse(JSON.stringify(notes));
+  let n = 0;
+  return {
+    data,
+    all: () => Object.keys(data).map((id) => ({ id, json: JSON.parse(JSON.stringify(data[id])) })),
+    get: (id) => data[id] ? JSON.parse(JSON.stringify(data[id])) : null,
+    put: (id, j) => { data[id] = JSON.parse(JSON.stringify(j)); return j; },
+    create(kind, extra = {}) {
+      const id = 'new0000' + (++n);
+      const j = { text: '', name: '', edited: '', tracker: kind === 'tracker' || kind === 'monthly', monthly: kind === 'monthly',
+                  todo: kind === 'todo' || kind === 'today', today: kind === 'today', ...extra };
+      data[id] = j;
+      return { id, json: JSON.parse(JSON.stringify(j)) };
+    },
+  };
+}
+
+// the same notes as tests\fixtures\make-shared.ps1
+const pad = (n) => String(n).padStart(2, '0');
+const today = new Date(); today.setHours(0, 0, 0, 0);
+const plus = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const I = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const T = (d) => `${I(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const m0 = new Date(today.getFullYear(), today.getMonth(), 1);
+const monthName = m0.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+const now = T(new Date()) + ':00';
+const mon = [
+  `TASK: ${monthName} - Activity List | started ${T(m0)}`, '',
+  '== NOT STARTED ==',
+  `[ ] Weekly Laundry | added ${T(plus(today, -5))} | every week | start ${I(plus(today, 1))} | due ${I(plus(today, 2))} | alarm ${I(plus(today, 2))} 10:30 daily`,
+  `[ ] Thesis chapter | added ${T(plus(today, -4))} | trk 1a2b3c4d`,
+  `[ ] Brand new task | added ${T(plus(today, -1))}`,
+  `[ ] Call the Dean | added ${T(plus(today, -2))}`, '',
+  '== ONGOING ==', '',
+  '== FINISHED =='].join('\r\n');
+const fixture = {
+  mon: { text: mon, tracker: true, monthly: true, edited: now },
+  today1: { text: [dateHeading(today), '[ ] Call the Dean ~30m', '[ ] weekly laundry!', '[ ] Thesis chapter ~2h @trk 1a2b3c4d', '[ ] Only on today'].join('\r\n'),
+            todo: true, today: true, edited: now },
+  other: { text: [dateHeading(today), '[ ] Weekly Laundry', '[ ] Thesis chapter'].join('\r\n'), todo: true, edited: '2020-01-01 00:00:00' },
+  '1a2b3c4d': { text: `TASK: Thesis chapter | started ${T(plus(today, -4))}\r\n\r\n== OBJECTIVES ==\r\n[ ] Draft\r\n\r\n== ONGOING ==\r\n\r\n== FINISHED ==`, tracker: true, edited: now },
+  '2b3c4d5e': { text: `TASK: Call the Dean | started ${T(plus(today, -2))}\r\n\r\n== OBJECTIVES ==\r\n[ ] Book a slot\r\n\r\n== ONGOING ==\r\n\r\n== FINISHED ==`, tracker: true, edited: now },
+};
+const s = makeStore(fixture);
+const text = (id) => s.data[id].text;
+const has = (id, rx) => rx.test(text(id));
+
+// --- the | trk part of an activity
+const pm = parseTracker(text('mon'));
+const th = pm.items.find((x) => x.name === 'Thesis chapter');
+const wl = pm.items.find((x) => x.name === 'Weekly Laundry');
+check("an activity's tracker link is read, and kept out of its name", th && th.meta.trk === '1a2b3c4d');
+check('its repeat and start day are read too', wl && wl.meta.every === 'week' && I(wl.meta.start) === I(plus(today, 1)));
+check('the same task: case, spacing and punctuation do not matter', taskKey('weekly laundry!') === taskKey('Weekly  Laundry'));
+
+// --- which tracker is an item's
+check('its own link wins', trackerFor(s, 'Anything at all', '2b3c4d5e') === '2b3c4d5e');
+check("no link here: the namesake's link in the monthly list", trackerFor(s, 'thesis CHAPTER.', '') === '1a2b3c4d');
+check('no link anywhere: a tracker of the same name', trackerFor(s, 'Call the Dean', '') === '2b3c4d5e');
+check('a link to a deleted tracker falls back to the name', trackerFor(s, 'Call the Dean', 'deadbeef') === '2b3c4d5e');
+check('nothing of that name: none', trackerFor(s, 'Nothing of the sort', '') === '');
+
+// --- to Today's List
+const a = sendToToday(s, 'Brand new task', 'cafe0001');
+check("an activity goes to Today's List, with its tracker link", a.result === 'added' && a.id === 'today1' && has('today1', /^\[ \] Brand new task @trk cafe0001\r?$/m), text('today1'));
+check("under today's heading", text('today1').split(/\r?\n/)[0] === dateHeading(today));
+check('sent again: it is already there, nothing added', sendToToday(s, 'Brand new task').result === 'there' && text('today1').split('Brand new task').length === 2);
+check('a namesake written differently counts as there', sendToToday(s, 'Weekly Laundry').result === 'there');
+
+// --- to this month's list
+const b = sendToMonth(s, 'Only on today', '');
+check("a task goes to this month's list, among the not started", b.result === 'added' && b.id === 'mon' && has('mon', /^\[ \] Only on today \| added \d{4}-\d{2}-\d{2} \d{2}:\d{2}\r?$/m), text('mon'));
+const b2 = sendToMonth(s, 'Pay the bills', 'cafe0002');
+check('with its tracker link when it has one', b2.result === 'added' && has('mon', /^\[ \] Pay the bills \| added \S+ \S+ \| trk cafe0002\r?$/m), text('mon'));
+check('sent again: already there', sendToMonth(s, 'only on TODAY').result === 'there');
+const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 15);
+check('next month has no list yet', findMonthList(s, nextMonth) === null);
+const made = findMonthList(s, nextMonth, true);
+check('one is made when asked, for that month', made && made.kind === 'monthly' && findMonthList(s, nextMonth).id === made.id);
+
+// --- ticked on Today's List: finished in the monthly list only
+finishElsewhere(s, 'weekly laundry!', '', ['monthly'], 'today1');
+check('finished in the monthly list', has('mon', /^\[x\] Weekly Laundry \| added .*\| finished /m), text('mon'));
+check('not in the other to-do list', has('other', /^\[ \] Weekly Laundry\r?$/m));
+check('a routine comes round again: the next one, a week on, start and alarm moved with it',
+  new RegExp(`^\\[ \\] Weekly Laundry \\| added \\S+ \\S+ \\| every week \\| start ${I(plus(today, 8))} \\| due ${I(plus(today, 9))} \\| alarm ${I(plus(today, 9))} 10:30 daily\\r?$`, 'm').test(text('mon')), text('mon'));
+
+// --- finished in the monthly list: ticked on Today's List only (by its tracker link)
+finishElsewhere(s, 'Thesis chapter', '1a2b3c4d', ['today'], 'mon');
+check("ticked on Today's List", has('today1', /^\[x\] Thesis chapter ~2h @trk 1a2b3c4d\r?$/m), text('today1'));
+check('not in the other to-do list', has('other', /^\[ \] Thesis chapter\r?$/m));
+check('and the monthly list itself is left alone', has('mon', /^\[ \] Thesis chapter \| added \S+ \S+ \| trk 1a2b3c4d\r?$/m));
+
+// --- a tracker for an item
+const tid = newTracker(s, 'Brand new task');
+check('a new tracker: its task, the work under way with the timer running',
+  /^TASK: Brand new task \| started \S+ \S+\r?\n/.test(text(tid)) && /^\[~\] Brand new task \| added \S+ \S+ \| started \S+ \S+ \| timer \S+ \S+\r?$/m.test(text(tid)), text(tid));
+check('and it is found by name from then on', trackerFor(s, 'brand new task', '') === tid);
+
+document.getElementById('sum').innerHTML = fail
+  ? `<span class="bad">${fail} failed</span>, ${pass} passed`
+  : `<span class="ok">all ${pass} checks passed</span>`;
+</script>

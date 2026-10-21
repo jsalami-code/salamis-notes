@@ -15,6 +15,7 @@ import * as graph from './graph.js';
 import * as github from './github.js';
 import { timerState, startTimer, pauseTimer, resetTimer, fmt, checkAlarms, askPermission, notifyState } from './alarms.js';
 import { openDashboard, redrawDashboard, DASH_FOR_KIND } from './dashview.js';
+import { trackerFor, newTracker, sendToToday, sendToMonth, finishElsewhere } from './shared.js';
 
 // the Windows app's palette: background, title bar, text
 const PALETTE = [
@@ -302,6 +303,25 @@ function todoRow(id, rows, i, r) {
     if (st.kind) btn('Reset', (t) => resetTimer(t));
     mid.append(moves);
   }
+  // Today's List: any task can have a task tracker, and can go into this month's list too
+  // (it stays here as well - the same name is the same task in both lists)
+  if ((store.get(id) || {}).today) {
+    const acts = el('div', 'move');
+    const act = (label, fn) => { const b = el('button', null, label); b.onclick = (e) => { e.stopPropagation(); fn(); }; acts.append(b); };
+    act('Tracker', () => openTaskTracker(r.task.title, r.task.trk || '', (tid) => {
+      const fresh = parseTodo(store.get(id).text ?? '');
+      const t = fresh[i];
+      if (!t || t.type !== 'task') return;
+      t.task.trk = tid; t.dirty = true;
+      save(id, formatTodo(fresh));
+    }));
+    if (!r.done) act('To month', () => {
+      const res = sendToMonth(store, r.task.title, trackerFor(store, r.task.title, r.task.trk || ''));
+      say(sendWord(res, res.title));
+      renderList();
+    });
+    mid.append(acts);
+  }
   row.append(mid);
   row.onclick = () => {
     const fresh = parseTodo(store.get(id).text ?? '');
@@ -309,9 +329,33 @@ function todoRow(id, rows, i, r) {
     if (!t || t.type !== 'task') return;   // the file changed under us; redraw instead
     t.done = !t.done; t.dirty = true;
     save(id, formatTodo(fresh));
+    // ticked on Today's List: finished in this month's list too
+    if (t.done && (store.get(id) || {}).today) {
+      const n = finishElsewhere(store, t.task.title, t.task.trk || '', ['monthly'], id);
+      if (n) { say("Marked finished in this month's list too"); renderList(); }
+    }
     openNote(id);
   };
   return row;
+}
+
+// --- one task in both lists ------------------------------------------------------------------
+// The task tracker for an item: its own, or the one its namesake in the other list has, or a
+// tracker of the same name - else a new one, with the work under way. `link` saves the id on
+// the item, so the item opens the same tracker next time.
+function openTaskTracker(title, current, link) {
+  let tid = trackerFor(store, title, current);
+  if (!tid) tid = newTracker(store, title);
+  if (tid !== current) link(tid);
+  renderList();
+  openNote(tid);
+}
+
+function sendWord(res, where) {
+  if (res.result === 'added') return `Added to ${where}`;
+  if (res.result === 'there') return `Already in ${where}`;
+  if (res.result === 'none') return "There is no Today's List yet - make one with + first.";
+  return 'Could not add it';
 }
 
 const liveChips = new Set();   // timer chips that need a new number every second
@@ -423,6 +467,11 @@ function trkRow(id, it, monthly) {
       if (to === 'done' && !target.meta.finished) target.meta.finished = new Date();
       if (to === 'todo') { target.meta.started = null; target.meta.finished = null; }
       save(id, formatTracker(fresh, monthly));
+      // finished in a monthly list: ticked on Today's List too
+      if (to === 'done' && monthly) {
+        const n = finishElsewhere(store, target.name, target.meta.trk || '', ['today'], id);
+        if (n) { say("Ticked on Today's List too"); renderList(); }
+      }
       openNote(id);
     };
     moves.append(b);
@@ -431,6 +480,24 @@ function trkRow(id, it, monthly) {
   if (it.state !== 'done') step('done', 'Finish');
   if (it.state !== 'todo') step('todo', monthly ? 'Not started' : 'To do');
   mid.append(moves);
+  // a monthly list's activities are tasks: each can have a tracker, and go on Today's List
+  if (monthly) {
+    const acts = el('div', 'move');
+    const act = (label, fn) => { const b = el('button', null, label); b.onclick = (e) => { e.stopPropagation(); fn(); }; acts.append(b); };
+    act('Tracker', () => openTaskTracker(it.name, it.meta.trk || '', (tid) => {
+      const fresh = parseTracker(store.get(id).text ?? '');
+      const target = fresh.items.find((x) => x.name === it.name && x.state === it.state);
+      if (!target) return;
+      target.meta.trk = tid; target.dirty = true;
+      save(id, formatTracker(fresh, true));
+    }));
+    if (it.state !== 'done') act('To Today', () => {
+      const res = sendToToday(store, it.name, trackerFor(store, it.name, it.meta.trk || ''));
+      say(sendWord(res, "Today's List"));
+      renderList();
+    });
+    mid.append(acts);
+  }
   row.append(mid);
   return row;
 }

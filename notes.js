@@ -217,7 +217,7 @@ export function formatTodo(rows) {
 // "| finished" on the TASK line means every objective is done, so the task itself is done.
 export const TRK_TASK_RX = /^\s*TASK:\s?(.*?)((?:\s+\|\s+(?:started|finished)\s+\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})*)\s*$/;
 const TRK_TASK_PART_RX = /\|\s+(started|finished)\s+(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})/g;
-export const TRK_ITEM_RX = /^\s*\[([ ~xX])\]\s?(.*?)((?:\s+\|\s+(?:added|started|start|finished|timer|snooze|spent|alarm|due|every)\s+[^|]*?)*)\s*$/;
+export const TRK_ITEM_RX = /^\s*\[([ ~xX])\]\s?(.*?)((?:\s+\|\s+(?:added|started|start|finished|timer|snooze|spent|alarm|due|every|trk)\s+[^|]*?)*)\s*$/;
 export const TRK_HEAD_RX = /^\s*==\s*(.+?)\s*==\s*$/;
 const TRK_STAMP_RX = /(added|started|finished)\s+(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})/g;
 const TRK_ALARM_RX = /alarm\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?(\s+daily)?/;
@@ -227,6 +227,8 @@ const TRK_START_RX = /start\s+(\d{4}-\d{2}-\d{2})/;
 const TRK_EVERY_RX = /every\s+(day|week|2weeks|month|mon|tue|wed|thu|fri|sat|sun)/i;
 const TRK_SNOOZE_RX = /snooze\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/;
 const TRK_TIMER_RX = /timer\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})/;
+// an activity's own task tracker: | trk 1a2b3c4d (the tracker note's id)
+const TRK_LINK_PART_RX = /\btrk\s+([0-9a-f]{8})/i;
 const TRK_SPENT_RX = /spent\s+(\d+):(\d{2}):(\d{2})/;
 
 export const TRK_SECTIONS = [
@@ -241,7 +243,7 @@ export function sectionTitle(state, monthly) {
 
 function readTrkMeta(parts) {
   const m = { added: null, started: null, finished: null, start: null, due: null, alarm: null,
-              daily: false, snooze: null, watch: null, spent: null, every: '' };
+              daily: false, snooze: null, watch: null, spent: null, every: '', trk: '' };
   if (!parts) return m;
   let x;
   TRK_STAMP_RX.lastIndex = 0;
@@ -253,6 +255,7 @@ function readTrkMeta(parts) {
   if ((x = TRK_SNOOZE_RX.exec(parts))) m.snooze = stampFrom(x, 1);
   if ((x = TRK_TIMER_RX.exec(parts))) m.watch = stampFrom(x, 1);
   else if ((x = TRK_SPENT_RX.exec(parts))) m.spent = +x[1] * 3600 + +x[2] * 60 + +x[3];
+  if ((x = TRK_LINK_PART_RX.exec(parts))) m.trk = x[1].toLowerCase();
   return m;
 }
 
@@ -318,6 +321,7 @@ export function formatTracker(t, monthly) {
       if (m.snooze) s += ' | snooze ' + writeStampSec(m.snooze);
       if (m.watch) s += ' | timer ' + writeStampSec(m.watch);
       else if (m.spent != null) s += ' | spent ' + formatHms(m.spent);
+      if (m.trk) s += ' | trk ' + m.trk;
       out.push(s);
     }
   }
